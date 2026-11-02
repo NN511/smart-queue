@@ -9,8 +9,8 @@ export async function POST(request: Request) {
     const service_id = body.service_id || null;
     const clinic_id = body.clinic_id || null;
 
-    // إدخال التذكرة/الحجز في قاعدة البيانات
-    const { data: ticket, error: dbError } = await supabaseAdmin
+    // محاولة الإدخال في جدول tickets
+    let { data: ticket, error: dbError } = await supabaseAdmin
       .from('tickets')
       .insert([
         {
@@ -24,10 +24,9 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    // إذا كان اسم الجدول في مشروعك bookings وليس tickets
-    let finalTicket = ticket;
+    // إذا فشل جدول tickets، نجرب جدول bookings
     if (dbError) {
-      console.warn('Fallback to bookings table:', dbError.message);
+      console.warn('tickets error:', dbError.message);
       const { data: booking, error: bookingErr } = await supabaseAdmin
         .from('bookings')
         .insert([
@@ -42,21 +41,22 @@ export async function POST(request: Request) {
         .single();
 
       if (bookingErr) {
-        console.error('Database Error:', bookingErr);
+        console.error('bookings error:', bookingErr.message);
         return NextResponse.json(
-          { error: 'فشل حفظ الحجز في قاعدة البيانات' },
+          { error: `خطأ قاعدة البيانات: ${bookingErr.message || dbError.message}` },
           { status: 500 }
         );
       }
-      finalTicket = booking;
+      ticket = booking;
     }
 
-    // إرسال إشعار الواتساب
+    // إرسال إشعار الواتساب عبر UltraMsg
     const instanceId = process.env.WHATSAPP_INSTANCE_ID;
     const token = process.env.WHATSAPP_TOKEN;
 
     if (instanceId && token && phone) {
-      const message = `مرحباً بك ${name}، تم تسجيل حجزك بنجاح في نظام Smart Queue.\nرقم التذكرة: ${finalTicket.ticket_number || finalTicket.id}`;
+      const ticketId = ticket.ticket_number || ticket.id;
+      const message = `مرحباً بك ${name}، تم تأكيد حجزك بنجاح في Smart Queue.\nرقم التذكرة: ${ticketId}`;
 
       try {
         await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
@@ -69,20 +69,18 @@ export async function POST(request: Request) {
           }),
         });
       } catch (whatsappErr) {
-        console.error('WhatsApp Notification Error:', whatsappErr);
+        console.error('WhatsApp Error:', whatsappErr);
       }
     }
 
     return NextResponse.json(
       {
         success: true,
-        ticket: finalTicket,
-        booking: finalTicket,
+        ticket: ticket,
       },
       { status: 200 }
     );
   } catch (err: any) {
-    console.error('API Error:', err);
     return NextResponse.json(
       { error: err.message || 'حدث خطأ غير متوقع' },
       { status: 500 }
