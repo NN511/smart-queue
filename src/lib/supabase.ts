@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -6,18 +6,33 @@ const supabaseUrl =
 
 const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
+  'sb_publishable_b4CtIn7FYxbMseKEzsRnuA_ytaim85I';
 
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+declare global {
+  var __supabaseClient: SupabaseClient | undefined;
+}
 
-// عميل المتصفح
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase =
+  globalThis.__supabaseClient ||
+  createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  });
 
-// عميل السيرفر (API Routes)
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+if (process.env.NODE_ENV !== 'production') {
+  globalThis.__supabaseClient = supabase;
+}
+
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+export const supabaseAdmin = serviceRoleKey
+  ? createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    })
+  : supabase;
