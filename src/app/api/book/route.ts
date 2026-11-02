@@ -1,87 +1,80 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
-import { sendWhatsAppMessage } from '@/lib/notifications';
-import crypto from 'crypto';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { clinic_id, service_id, customer_name, customer_phone } = body;
+    const { name, phone, service_id, date, time } = body;
 
-    // 1. التحقق من الحقول الإلزامية
-    if (!service_id) {
+    if (!name || !phone) {
       return NextResponse.json(
-        { error: 'يرجى تحديد الخدمة المطلوبة' },
+        { error: 'الاسم ورقم الهاتف مطلوبان' },
         { status: 400 }
       );
     }
 
-    const client = supabaseAdmin || supabase;
-    const today = new Date().toISOString().split('T')[0];
-    const targetClinicId = clinic_id || '00000000-0000-0000-0000-000000000001';
-
-    // 2. حساب رقم التذكرة لليوم الحالي
-    const { count, error: countError } = await client
-      .from('tickets')
-      .select('*', { count: 'exact', head: true })
-      .eq('queue_date', today);
-
-    if (countError) {
-      console.warn('تحذير أثناء احتساب عدد التذاكر:', countError.message);
-    }
-
-    const nextNumber = (count || 0) + 1;
-
-    // 3. توليد المفاتيح والرموز الإلزامية
-    const idempotencyKey = crypto.randomUUID();
-    const publicTokenHash = crypto.randomBytes(32).toString('hex');
-
-    // 4. إدراج التذكرة
-    const { data: newTicket, error: insertError } = await client
-      .from('tickets')
-      .insert({
-        clinic_id: targetClinicId,
-        service_id: service_id,
-        customer_name: customer_name ? customer_name.trim() : 'مراجع',
-        customer_phone: customer_phone ? customer_phone.trim() : null,
-        ticket_number: nextNumber,
-        queue_date: today,
-        idempotency_key: idempotencyKey,
-        public_token_hash: publicTokenHash,
-        status: 'waiting',
-      })
+    // إدخال الحجز في قاعدة بيانات Supabase
+    const { data: booking, error: dbError } = await supabaseAdmin
+      .from('bookings')
+      .insert([
+        {
+          customer_name: name,
+          phone: phone,
+          service_id: service_id || null,
+          booking_date: date || new Date().toISOString().split('T')[0],
+          booking_time: time || new Date().toLocaleTimeString(),
+          status: 'pending',
+        },
+      ])
       .select()
       .single();
 
-    if (insertError) {
-      console.error('تفاصيل خطأ الإدراج في Supabase:', insertError);
+    if (dbError) {
+      console.error('Database Error:', dbError);
       return NextResponse.json(
-        { error: `خطأ قاعدة البيانات: ${insertError.message}` },
+        { error: 'فشل حفظ الحجز في قاعدة البيانات' },
         { status: 500 }
       );
     }
 
-    // 5. إرسال تنبيه الواتساب في الخلفية
-    if (customer_phone && newTicket?.id) {
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-      const ticketUrl = `${baseUrl}/ticket/${newTicket.id}`;
-      
-      const message = `مرحباً بك في العيادة 🏥\nتم إصدار تذكرتك بنجاح!\n\nرقم التذكرة: #${newTicket.ticket_number}\nالاسم: ${newTicket.customer_name}\n\nيمكنك متابعة دورك مباشرة من هنا:\n${ticketUrl}`;
+    // إرسال إشعار الواتساب عبر API
+    const instanceId = process.env.WHATSAPP_INSTANCE_ID;
+    const token = process.env.WHATSAPP_TOKEN;
 
-      sendWhatsAppMessage(customer_phone, message).catch((err) => {
-        console.error('تعذر إرسال رسالة الواتساب:', err);
-      });
+    if (instanceId && token) {
+      const message = `مرحباً بك ${name}، تم تأكيد حجزك بنجاح في نظام Smart Queue.\nرقم الحجز: ${booking.id}`;
+
+      try {
+        await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            token: token,
+            to: phone,
+            body: message,
+          }),
+        });
+      } catch (whatsappErr) {
+        console.error('WhatsApp Notification Error:', whatsappErr);
+      }
     }
 
-    // 6. الرد بنجاح
-    return NextResponse.json({
-      success: true,
-      ticket: newTicket,
-    });
-  } catch (error: any) {
-    console.error('خطأ غير متوقع في API الحجز:', error);
     return NextResponse.json(
-      { error: error.message || 'حدث خطأ داخلي في الخادم' },
+      {
+        success: true,
+        message: 'تم تسجيل الحجز بنجاح',
+        booking,
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error('API Error:', err);
+    return NextResponse.json(
+      { error: err.message || 'حدث خطأ غير متوقع' },
       { status: 500 }
     );
   }
