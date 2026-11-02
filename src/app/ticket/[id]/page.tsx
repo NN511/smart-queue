@@ -177,4 +177,42 @@ function TicketContent() {
       <div className="my-8 text-center">
         <span className="text-xs text-slate-400 block mb-2 font-medium">رقم التذكرة الخاص بك</span>
         <div
-          className={`text-6xl sm:text-7xl
+          className={`text-6xl sm:text-7xl font-black tracking-widest inline-block px-6 py-4 rounded-3xl transition-all ${
+            isCalled
+              ? 'text-amber-400 bg-amber-500/10 border-2 border-amber-500/40 shadow-[0_0_40px_rgba(245,158,11,0.2)] animate-bounce'
+              : isServing
+              ? 'text-emerald-400 bg-emerald-500/10 border-2 border-emerald-500/40 shadow-[0_0_40px_rgba(16,185,129,0.2)]'
+              : 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
+          }`}
+        >
+          #{ticket.ticket_number}
+        </div>
+      </div>
+
+      <div className="bg-slate-800/60 border border-slate-700/40 rounded-2xl p-4 space-y-3">
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-slate-400">حالة التذكرة</span>
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-bold ${
+              isCalled
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                : isServing
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                : isCompleted
+                ? 'bg-slate-700 text-slate-300'
+                : isCancelled
+                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+            }`}
+          >
+            {ticket.status === 'waiting' && 'في الانتظار'}
+            {ticket.status === 'called' && 'تم النداء'}
+            {ticket.status === 'serving' && 'جاري الكشف'}
+            {ticket.status === 'completed' && 'مكتمل'}
+            {ticket.status === 'cancelled' && 'ملغي'}
+          </span>
+        </div>
+
+        {ticket.status === 'waiting' && (
+          <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-700/50">
+            <span className="text-slate-400"></span>
